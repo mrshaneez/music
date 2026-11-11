@@ -3,7 +3,11 @@
 A music player that runs in the browser as a single HTML file. It has no dependencies and no build step.
 
 ## Features
-- Add your own songs with the **+ Add music** button or by dragging files onto the page (MP3, WAV, OGG, M4A, FLAC…)
+- **Add from a link:** paste a direct link to an audio or video file and Groove downloads it into your library. If the site doesn't allow downloads, the file is added for online play instead.
+- **Audio and video:** plays MP3, M4A, WAV, OGG, FLAC, MP4, WebM, MOV and more. Videos play in the player, with a fullscreen button.
+- **Saved library:** everything you add is kept in your browser, so it's still there next time.
+- **Save to device:** a download button on each item saves the file to your computer or phone.
+- Add files with the **+ Add files** button or by dragging them onto the page
 - Play/pause, next/previous, seek, volume and mute
 - Shuffle, and repeat (off / all / one)
 - A circular visualizer driven by the Web Audio API
@@ -20,8 +24,12 @@ A music player that runs in the browser as a single HTML file. It has no depende
 | S | Shuffle |
 | R | Repeat |
 | M | Mute |
+| F | Fullscreen (video) |
 
 ## Run it
 Open `index.html` in any modern browser, or turn on **GitHub Pages** (Settings → Pages → Deploy from branch → `main` / root).
 
-Songs play from your device and are never uploaded.
+Your songs and videos stay on your device and are never uploaded.
+
+### About links
+Links need to point straight at a media file, for example `https://example.com/song.mp3`. YouTube, Spotify, SoundCloud and similar sites can't be added: their links open a web page rather than a file, and they don't allow downloads.
