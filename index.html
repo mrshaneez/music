@@ -38,6 +38,9 @@
   .art video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000;display:none}
   .art.isvideo video.active{display:block}
   .art.isvideo canvas,.art.isvideo .disc{display:none}
+  .art #ytHost,.art #ttFrame{position:absolute;inset:0;width:100%;height:100%;border:0;display:none;background:#000}
+  .art.isvideo #ytHost.active,.art.isvideo #ttFrame.active{display:block}
+  .art.isvideo.tall{aspect-ratio:9/16;height:min(72vh,680px);width:auto;max-width:100%;align-self:center}
   .fs{position:absolute;right:10px;bottom:10px;z-index:2;display:none;background:#000a;border:none;color:#fff;
     width:36px;height:36px;border-radius:10px;cursor:pointer}
   .fs svg{width:20px;height:20px;fill:currentColor}
@@ -132,9 +135,11 @@
       <canvas id="viz"></canvas><div class="disc"></div>
       <video id="vA" playsinline crossorigin="anonymous"></video>
       <video id="vB" playsinline></video>
+      <div id="ytHost"></div>
+      <iframe id="ttFrame" allow="autoplay; fullscreen; encrypted-media" title="TikTok player"></iframe>
       <button class="fs" id="fsBtn" title="Fullscreen (F)"><svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg></button>
     </div>
-    <div class="meta"><h2 id="title">Nothing playing</h2><p id="artist">Add songs, paste a link, or pick a demo track</p></div>
+    <div class="meta"><h2 id="title">Nothing playing</h2><p id="artist">Add songs, paste a YouTube, TikTok or file link, or pick a demo</p></div>
     <div class="seek">
       <input type="range" id="seek" min="0" max="1000" value="0">
       <div class="times"><span id="cur">0:00</span><span id="dur">0:00</span></div>
@@ -155,7 +160,7 @@
   <section class="card lib">
     <div class="lib-head"><h3>Library</h3><span class="count" id="count"></span></div>
     <form class="linkrow" id="linkForm">
-      <input class="field" id="linkInput" type="url" placeholder="Paste a link to an audio or video file…" autocomplete="off">
+      <input class="field" id="linkInput" type="url" placeholder="Paste a YouTube, TikTok or audio/video file link…" autocomplete="off">
       <button class="btn primary" id="linkBtn" type="submit">Add</button>
     </form>
     <div class="prog" id="prog"><span id="progText">Downloading…</span><div class="bar" id="progBar"><i id="progFill"></i></div></div>
@@ -201,7 +206,8 @@ const dbPut = rec => dbReq('readwrite',st=>{st.put(rec)});
 const dbDel = id  => dbReq('readwrite',st=>{st.delete(id)});
 const dbAll = ()  => dbReq('readonly', st=>st.getAll());
 function saveTrack(t){
-  return dbPut({id:t.id,title:t.title,artist:t.artist,kind:t.kind,added:t.added,duration:t.duration,blob:t.blob||null,link:t.link||null});
+  return dbPut({id:t.id,title:t.title,artist:t.artist,kind:t.kind,added:t.added,duration:t.duration,blob:t.blob||null,link:t.link||null,
+    embed:t.embed||null,vid:t.vid||null,tall:!!t.tall,untitled:!!t.untitled});
 }
 
 /* ---------- Demo tracks synthesized in the browser ---------- */
@@ -271,7 +277,7 @@ async function addTrack(t, startPlaying){
   tracks.push(t); rebuildOrder(); render();
   if(!t.demo){ const ok=await saveTrack(t);
     if(!ok) toast(`"${t.title}" will play now but couldn't be saved for next time (browser storage full or unavailable).`,true); }
-  if(startPlaying && (cur<0||media.paused)) playIndex(tracks.indexOf(t));
+  if(startPlaying && (cur<0||st.paused)) playIndex(tracks.indexOf(t));
 }
 
 /* ---------- Adding files from the device ---------- */
@@ -315,12 +321,51 @@ async function fetchWithProgress(url){
   return new Blob(chunks,{type:type||'application/octet-stream'});
 }
 
+/* YouTube & TikTok links play through the sites' official embedded players */
+function parseEmbed(u){
+  const h=u.hostname.toLowerCase().replace(/^(www|m|music)\./,'');
+  let id=null;
+  if(h==='youtu.be') id=u.pathname.split('/')[1];
+  else if(h==='youtube.com'||h==='youtube-nocookie.com')
+    id=u.searchParams.get('v')||(u.pathname.match(/^\/(?:shorts|embed|live|v)\/([\w-]{11})/)||[])[1];
+  if(id&&/^[\w-]{11}$/.test(id)) return {embed:'yt',vid:id,tall:u.pathname.startsWith('/shorts/')};
+  if(h==='tiktok.com'||h.endsWith('.tiktok.com')){
+    const m=u.pathname.match(/\/(?:video|photo|v|player\/v1|embed\/v2|embed)\/(\d{8,})/);
+    if(m) return {embed:'tt',vid:m[1],tall:true};
+    if(/^(vm|vt)\./i.test(u.hostname)||u.pathname.startsWith('/t/')) return {short:true};
+  }
+  return null;
+}
+async function getJSON(url){
+  try{const c=new AbortController();const to=setTimeout(()=>c.abort(),6000);
+    const r=await fetch(url,{signal:c.signal});clearTimeout(to);return r.ok?await r.json():null;}catch(e){return null;}
+}
+async function addEmbed(u,em){
+  const site=em.embed==='yt'?'YouTube':'TikTok';
+  if(tracks.some(t=>t.embed===em.embed&&t.vid===em.vid)){toast('That video is already in your library.');return;}
+  showProg(`Getting ${site} video info…`,null);
+  const canon=em.embed==='yt'?'https://www.youtube.com/watch?v='+em.vid:u.href.split('?')[0];
+  const info=await getJSON(em.embed==='yt'
+    ?'https://www.youtube.com/oembed?format=json&url='+encodeURIComponent(canon)
+    :'https://www.tiktok.com/oembed?url='+encodeURIComponent(canon));
+  hideProg();
+  const title=(info&&info.title?info.title.replace(/\s+/g,' ').trim().slice(0,140):'')||site+' video';
+  const artist=(info&&info.author_name)||site;
+  await addTrack({id:uid(),title,artist,kind:'video',embed:em.embed,vid:em.vid,tall:em.tall,link:canon,
+    added:Date.now(),duration:0,untitled:!(info&&info.title)},true);
+  toast(`Added "${title}". ${site} videos play in ${site}'s own player, so they need internet and can't be saved to your device.`,false,6500);
+  $('linkInput').value='';
+}
+
 let busy=false;
 async function addLink(raw){
   let u; try{u=new URL(raw.trim());}catch(e){toast('That doesn\'t look like a link. Paste the full address, starting with https://',true);return;}
   if(!/^https?:$/.test(u.protocol)){toast('Only http and https links are supported.',true);return;}
+  const em=parseEmbed(u);
+  if(em&&em.short){toast('TikTok short links can\'t be read here. Open the link in your browser, then copy the full address from the address bar. It contains /video/ followed by a long number.',true,9000);return;}
+  if(em){addEmbed(u,em);return;}
   if(PAGE_SITES.test(u.hostname)){
-    toast(`${u.hostname.replace(/^www\./,'')} links can't be added. They open a web page rather than an audio or video file, and those sites don't allow downloads. Use a direct link to a file instead, for example one ending in .mp3 or .mp4.`,true,8000);return;}
+    toast(`That ${u.hostname.replace(/^(www|m)\./,'')} link can't be added. Groove works with YouTube videos, TikTok videos, and direct links to audio or video files (for example ones ending in .mp3 or .mp4).`,true,8000);return;}
   if(busy){toast('Still adding the last link. Please wait a moment.');return;}
   busy=true; $('linkBtn').disabled=true;
   const seg=decodeURIComponent(u.pathname.split('/').filter(Boolean).pop()||u.hostname);
@@ -360,6 +405,9 @@ $('linkInput').addEventListener('paste',e=>{const t=(e.clipboardData||window.cli
   if(/^https?:\/\/\S+$/.test(t.trim())){e.preventDefault();$('linkInput').value=t.trim();addLink(t);}});
 
 /* ---------- Playback ---------- */
+let engine='media';                       // 'media' (files/links) | 'yt' (YouTube) | 'tt' (TikTok)
+const st={paused:true,time:0,dur:0};
+let seeking=false;
 function rebuildOrder(){
   order=tracks.map((_,i)=>i);
   if(shuffle){for(let i=order.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[order[i],order[j]]=[order[j],order[i]];}
@@ -375,63 +423,159 @@ function initAudioGraph(){
     src.connect(analyser);analyser.connect(ctx.destination);
   }catch(e){ctx=null;}
 }
+/* shared UI updates, fed by whichever engine is active */
+function uiPlaying(p){
+  st.paused=!p;
+  $('player').classList.toggle('playing',p); document.body.classList.toggle('paused',!p);
+  $('playIcon').innerHTML=p?'<path d="M6 5h4v14H6zm8 0h4v14h-4z"/>':'<path d="M8 5v14l11-7z"/>';
+  if('mediaSession' in navigator) try{navigator.mediaSession.playbackState=p?'playing':'paused'}catch(e){}
+}
+function uiTime(t,d){
+  st.time=t||0; if(d&&isFinite(d)) st.dur=d;
+  const tr=tracks[cur];
+  if(tr&&!tr.duration&&st.dur){tr.duration=st.dur;render();if(!tr.demo&&!tr.blob)saveTrack(tr);}
+  if(seeking||!st.dur) return;
+  const s=$('seek'); s.value=st.time/st.dur*1000; setFill(s);
+  $('cur').textContent=fmt(st.time); $('dur').textContent=fmt(st.dur);
+}
+function uiEnded(){ if(repeat===2){seekTo(0);doPlay();} else step(1); }
+
+/* files & direct links: <video> elements */
+[vA,vB].forEach(el=>{
+  const mine=()=>el===media&&engine==='media';
+  el.addEventListener('ended',()=>{if(mine())uiEnded();});
+  el.addEventListener('play',()=>{if(mine())uiPlaying(true);});
+  el.addEventListener('pause',()=>{if(mine())uiPlaying(false);});
+  el.addEventListener('loadedmetadata',()=>{if(mine())uiTime(el.currentTime,el.duration);});
+  el.addEventListener('timeupdate',()=>{if(mine())uiTime(el.currentTime,el.duration);});
+  el.addEventListener('error',()=>{ if(!mine()||cur<0||!el.getAttribute('src')) return;
+    toast(`Couldn't play "${tracks[cur].title}".${tracks[cur].link?' The link may be offline.':''}`,true); });
+  el.addEventListener('click',togglePlay);
+});
+
+/* YouTube: official IFrame Player API */
+let yt=null, ytApi=null, ytTimer=null;
+function loadYT(){
+  if(ytApi) return ytApi;
+  ytApi=new Promise((res,rej)=>{
+    if(window.YT&&YT.Player) return res();
+    window.onYouTubeIframeAPIReady=()=>res();
+    const s=document.createElement('script'); s.src='https://www.youtube.com/iframe_api';
+    s.onerror=()=>{ytApi=null;rej(new Error('yt'));}; document.head.appendChild(s);
+    setTimeout(()=>{if(!(window.YT&&YT.Player)){ytApi=null;rej(new Error('yt'));}},15000);
+  });
+  return ytApi;
+}
+const YT_ERR={2:'This YouTube link looks broken.',5:'YouTube couldn\'t play this video here.',100:'This YouTube video was removed or made private.',
+  101:'The owner of this video doesn\'t allow it to play outside YouTube.',150:'The owner of this video doesn\'t allow it to play outside YouTube.'};
+async function ytLoad(t){
+  await loadYT();
+  if(tracks[cur]!==t||engine!=='yt') return;
+  if(!yt){
+    await new Promise(res=>{
+      yt=new YT.Player('ytHost',{width:'100%',height:'100%',videoId:t.vid,
+        playerVars:{autoplay:1,playsinline:1,rel:0},
+        events:{
+          onReady:e=>{e.target.setVolume(Math.round(vA.volume*100)); if(vA.volume===0)e.target.mute(); e.target.playVideo(); res();},
+          onStateChange:e=>{ if(engine!=='yt') return;
+            if(e.data===1){uiPlaying(true);ytTitle();} else if(e.data===2) uiPlaying(false);
+            else if(e.data===0){uiPlaying(false);uiEnded();} },
+          onError:e=>{ if(engine==='yt') toast(YT_ERR[e.data]||'YouTube couldn\'t play this video.',true,7000); }
+        }});
+    });
+  } else yt.loadVideoById(t.vid);
+  $('ytHost').classList.add('active');
+  clearInterval(ytTimer);
+  ytTimer=setInterval(()=>{ if(engine==='yt'&&yt&&yt.getCurrentTime) uiTime(yt.getCurrentTime(),yt.getDuration()); },250);
+}
+function ytTitle(){   // fill in the real title if we couldn't fetch it when the link was added
+  const t=tracks[cur]; if(!t||!t.untitled||!yt.getVideoData) return;
+  const d=yt.getVideoData(); if(d&&d.title){t.title=d.title;if(d.author)t.artist=d.author;t.untitled=false;updateNow();render();saveTrack(t);}
+}
+
+/* TikTok: official embed player (postMessage API) */
+const ttF=$('ttFrame');
+function ttSend(type,value){ try{ttF.contentWindow.postMessage({type,value,'x-tiktok-player':true},'*');}catch(e){} }
+function ttLoad(t){
+  ttF.src=`https://www.tiktok.com/player/v1/${t.vid}?autoplay=1&loop=0&rel=0&music_info=1&description=1&controls=1&progress_bar=1&play_button=1&volume_control=1&fullscreen_button=1&timestamp=1`;
+  ttF.classList.add('active');
+}
+addEventListener('message',e=>{
+  let host=''; try{host=new URL(e.origin).hostname;}catch(x){}
+  if(!/(^|\.)tiktok\.com$/.test(host)||engine!=='tt') return;
+  let d=e.data; if(typeof d==='string'){try{d=JSON.parse(d);}catch(x){return;}}
+  if(!d||!d['x-tiktok-player']) return;
+  if(d.type==='onPlayerReady'){ if(vA.volume===0) ttSend('mute'); ttSend('play'); }
+  else if(d.type==='onStateChange'){ if(d.value===1)uiPlaying(true); else if(d.value===2)uiPlaying(false); else if(d.value===0){uiPlaying(false);uiEnded();} }
+  else if(d.type==='onCurrentTime'&&d.value) uiTime(d.value.currentTime,d.value.duration);
+});
+
+/* one set of controls for every engine */
+function doPlay(){ if(engine==='media') media.play().catch(()=>{}); else if(engine==='yt') yt&&yt.playVideo&&yt.playVideo(); else ttSend('play'); }
+function doPause(){ if(engine==='media') media.pause(); else if(engine==='yt') yt&&yt.pauseVideo&&yt.pauseVideo(); else ttSend('pause'); }
+function seekTo(t){
+  if(engine==='media') media.currentTime=t; else if(engine==='yt') yt&&yt.seekTo&&yt.seekTo(t,true); else ttSend('seekTo',t);
+  uiTime(t,st.dur);
+}
+function stopAll(){
+  const was=engine; engine='none';
+  [vA,vB].forEach(el=>{el.pause();if(el.getAttribute('src')){el.removeAttribute('src');el.load();}el.classList.remove('active');});
+  if(yt&&yt.stopVideo) try{yt.stopVideo();}catch(e){}
+  $('ytHost').classList.remove('active'); clearInterval(ytTimer);
+  if(ttF.getAttribute('src')&&ttF.getAttribute('src')!=='about:blank') ttF.src='about:blank';
+  ttF.classList.remove('active');
+  uiPlaying(false); st.time=0; st.dur=0; engine=was;
+}
 async function playIndex(i){
   if(i<0||i>=tracks.length) return;
   initAudioGraph(); if(ctx&&ctx.state==='suspended') ctx.resume();
+  stopAll();
   cur=i; const t=tracks[i];
-  if(!t.url && t.demo){
-    $('title').textContent=t.title;$('artist').textContent='Rendering demo…';
-    t.blob=await renderDemo(t.demo); t.url=URL.createObjectURL(t.blob);
-  }
-  if(!t.url && t.blob) t.url=URL.createObjectURL(t.blob);
-  const next = t.link ? vB : vA;       // streamed links can't go through Web Audio
-  const other = next===vA ? vB : vA;
-  other.pause(); other.removeAttribute('src'); other.load(); other.classList.remove('active');
-  media=next; media.classList.add('active');
-  $('art').classList.toggle('isvideo',t.kind==='video');
-  media.src=t.url;
-  try{await media.play();}catch(e){}
+  st.dur=t.duration||0; $('seek').value=0; setFill($('seek'));
+  $('cur').textContent='0:00'; $('dur').textContent=fmt(st.dur);
+  $('art').classList.toggle('isvideo',t.kind==='video'); $('art').classList.toggle('tall',!!t.tall);
   updateNow(); render();
+  if(t.embed==='yt'){ engine='yt'; try{await ytLoad(t);}catch(e){toast('Couldn\'t reach YouTube. Check your internet connection.',true);} return; }
+  if(t.embed==='tt'){ engine='tt'; ttLoad(t); return; }
+  engine='media';
+  if(!t.url&&t.demo){ $('artist').textContent='Rendering demo…'; t.blob=await renderDemo(t.demo); t.url=URL.createObjectURL(t.blob);
+    if(tracks[cur]!==t) return; $('artist').textContent=t.artist; }
+  if(!t.url&&t.blob) t.url=URL.createObjectURL(t.blob);
+  media=t.link?vB:vA;                     // streamed links can't go through Web Audio
+  media.classList.add('active'); media.src=t.url;
+  try{await media.play();}catch(e){}
 }
 function togglePlay(){
   if(cur<0){ if(tracks.length) playIndex(order[0]); return; }
   initAudioGraph(); if(ctx&&ctx.state==='suspended') ctx.resume();
-  media.paused?media.play().catch(()=>{}):media.pause();
+  st.paused?doPlay():doPause();
 }
 function step(dir){
   if(!tracks.length) return;
-  if(dir<0 && media.currentTime>3){media.currentTime=0;return;}
+  if(dir<0&&st.time>3&&cur>=0){seekTo(0);return;}
   let pos=order.indexOf(cur)+dir;
-  if(pos>=order.length){ if(repeat===1){ if(shuffle) rebuildOrder(); pos=0;} else {media.pause();media.currentTime=0;return;} }
+  if(pos>=order.length){ if(repeat===1){ if(shuffle) rebuildOrder(); pos=0;} else {doPause();seekTo(0);return;} }
   if(pos<0) pos=repeat===1?order.length-1:0;
   playIndex(order[pos]);
 }
-let seeking=false;
-[vA,vB].forEach(el=>{
-  el.addEventListener('ended',()=>{if(el!==media)return; if(repeat===2){el.currentTime=0;el.play();} else step(1);});
-  const ps=()=>{ if(el!==media) return; const p=!el.paused;
-    $('player').classList.toggle('playing',p); document.body.classList.toggle('paused',!p);
-    $('playIcon').innerHTML=p?'<path d="M6 5h4v14H6zm8 0h4v14h-4z"/>':'<path d="M8 5v14l11-7z"/>';
-    if('mediaSession' in navigator) navigator.mediaSession.playbackState=p?'playing':'paused'; };
-  el.addEventListener('play',ps); el.addEventListener('pause',ps);
-  el.addEventListener('loadedmetadata',()=>{ if(el!==media||cur<0) return; $('dur').textContent=fmt(el.duration);
-    const t=tracks[cur]; if(t&&isFinite(el.duration)&&!t.duration){t.duration=el.duration;render();} });
-  el.addEventListener('timeupdate',()=>{ if(el!==media||seeking||!el.duration) return;
-    const s=$('seek'); s.value=el.currentTime/el.duration*1000; setFill(s); $('cur').textContent=fmt(el.currentTime); });
-  el.addEventListener('error',()=>{ if(el!==media||cur<0||!el.getAttribute('src')) return;
-    toast(`Couldn't play "${tracks[cur].title}".${tracks[cur].link?' The link may be offline.':''}`,true); });
-  el.addEventListener('click',togglePlay);
-});
-$('seek').oninput=e=>{seeking=true;setFill(e.target);if(media.duration)$('cur').textContent=fmt(e.target.value/1000*media.duration);};
-$('seek').onchange=e=>{if(media.duration)media.currentTime=e.target.value/1000*media.duration;seeking=false;};
+$('seek').oninput=e=>{seeking=true;setFill(e.target);if(st.dur)$('cur').textContent=fmt(e.target.value/1000*st.dur);};
+$('seek').onchange=e=>{seeking=false;if(st.dur)seekTo(e.target.value/1000*st.dur);};
 const vol=$('vol'); let lastVol=.8;
-const setVol=v=>{vA.volume=vB.volume=v;vol.value=v*100;setFill(vol);try{localStorage.setItem('groove-vol',v)}catch(e){}};
+const setVol=v=>{
+  vA.volume=vB.volume=v; vol.value=v*100; setFill(vol);
+  if(yt&&yt.setVolume){try{yt.setVolume(Math.round(v*100)); v===0?yt.mute():yt.unMute();}catch(e){}}
+  if(engine==='tt') ttSend(v===0?'mute':'unMute');
+  try{localStorage.setItem('groove-vol',v)}catch(e){}
+};
 vol.oninput=()=>setVol(vol.value/100);
 const toggleMute=()=>{ if(vA.volume>0){lastVol=vA.volume;setVol(0);} else setVol(lastVol||.8); };
 $('muteBtn').onclick=toggleMute;
 try{const v=localStorage.getItem('groove-vol');setVol(v!==null?+v:.8)}catch(e){setVol(.8)}
-function goFull(){ if(tracks[cur]?.kind!=='video') return; const el=media;
-  (el.requestFullscreen||el.webkitEnterFullscreen||el.webkitRequestFullscreen)?.call(el)?.catch?.(()=>{}); }
+function goFull(){
+  const t=tracks[cur]; if(!t||t.kind!=='video') return;
+  const el=engine==='yt'?$('ytHost'):engine==='tt'?ttF:media;
+  try{const r=(el.requestFullscreen||el.webkitRequestFullscreen||el.webkitEnterFullscreen).call(el); if(r&&r.catch)r.catch(()=>{});}catch(e){}
+}
 $('fsBtn').onclick=goFull;
 
 $('play').onclick=togglePlay; $('next').onclick=()=>step(1); $('prev').onclick=()=>step(-1);
@@ -462,7 +606,7 @@ function render(){
   if(!shown.length){ul.innerHTML='<li class="empty">'+(tracks.length?'No matches':'Your library is empty. Add files or paste a link.')+'</li>';return;}
   shown.forEach(([t,i])=>{
     const li=document.createElement('li'); li.className='item'+(i===cur?' active':'');
-    const tags=(t.kind==='video'?'<span class="tag">VIDEO</span>':'')+(t.link?'<span class="tag">ONLINE</span>':'');
+    const tags=(t.kind==='video'?'<span class="tag">VIDEO</span>':'')+(t.embed==='yt'?'<span class="tag">YOUTUBE</span>':t.embed==='tt'?'<span class="tag">TIKTOK</span>':t.link?'<span class="tag">ONLINE</span>':'');
     li.innerHTML=`<span class="num">${i===cur?'<span class="bars"><i></i><i></i><i></i></span>':i+1}</span>
       <div style="min-width:0"><div class="t"></div><div class="a">${tags}<span class="an"></span></div></div>
       <span class="dur">${t.duration?fmt(t.duration):''}</span>
@@ -483,7 +627,7 @@ function saveToDevice(t){
 }
 function removeTrack(i){
   const t=tracks[i];
-  if(i===cur){media.pause();media.removeAttribute('src');media.load();cur=-1;$('art').classList.remove('isvideo');
+  if(i===cur){stopAll();cur=-1;$('art').classList.remove('isvideo','tall');
     $('title').textContent='Nothing playing';$('artist').textContent='Pick something from your library';
     $('cur').textContent=$('dur').textContent='0:00';$('seek').value=0;setFill($('seek'));document.title='Groove — Music Player';}
   else if(i<cur) cur--;
@@ -517,8 +661,8 @@ function draw(){
   const W=cv.width,H=cv.height,cx=W/2,cy=H/2; if(!W) {resize();return;}
   g.clearRect(0,0,W,H);
   const n=64; const vals=new Array(n).fill(0);
-  if(analyser&&media===vA&&!vA.paused){analyser.getByteFrequencyData(data);for(let i=0;i<n;i++)vals[i]=data[Math.floor(i*data.length*0.75/n)]/255;}
-  else{tIdle+=.02;const amp=media.paused?.05:.12;for(let i=0;i<n;i++)vals[i]=.08+amp*Math.sin(tIdle*(media.paused?1:3)+i*.4);}
+  if(analyser&&engine==='media'&&media===vA&&!st.paused){analyser.getByteFrequencyData(data);for(let i=0;i<n;i++)vals[i]=data[Math.floor(i*data.length*0.75/n)]/255;}
+  else{tIdle+=.02;const amp=st.paused?.05:.12;for(let i=0;i<n;i++)vals[i]=.08+amp*Math.sin(tIdle*(st.paused?1:3)+i*.4);}
   const R=Math.min(W,H)*.22,maxL=Math.min(W,H)*.24;
   const avg=vals.reduce((a,b)=>a+b,0)/n;
   const grad=g.createRadialGradient(cx,cy,R*.5,cx,cy,R+maxL*1.2);

@@ -3,6 +3,7 @@
 A music player that runs in the browser as a single HTML file. It has no dependencies and no build step.
 
 ## Features
+- **YouTube & TikTok:** paste a YouTube video, YouTube Short or TikTok video link and it joins your library. It plays in the site's official embedded player and works with play/pause, next, shuffle and repeat.
 - **Add from a link:** paste a direct link to an audio or video file and Groove downloads it into your library. If the site doesn't allow downloads, the file is added for online play instead.
 - **Audio and video:** plays MP3, M4A, WAV, OGG, FLAC, MP4, WebM, MOV and more. Videos play in the player, with a fullscreen button.
 - **Saved library:** everything you add is kept in your browser, so it's still there next time.
@@ -32,4 +33,7 @@ Open `index.html` in any modern browser, or turn on **GitHub Pages** (Settings â
 Your songs and videos stay on your device and are never uploaded.
 
 ### About links
-Links need to point straight at a media file, for example `https://example.com/song.mp3`. YouTube, Spotify, SoundCloud and similar sites can't be added: their links open a web page rather than a file, and they don't allow downloads.
+- **Direct file links** (`https://example.com/song.mp3`) are downloaded into your library.
+- **YouTube and TikTok links** play through the sites' official players. They stream rather than download, since those sites don't allow downloads, so they need internet. Some videos can't play outside YouTube because their owner turned that off.
+- **TikTok short links** (`vm.tiktok.com/â€¦`) need to be opened in a browser first. Copy the full address, which contains `/video/` and a long number.
+- Spotify, SoundCloud and other streaming sites aren't supported.
