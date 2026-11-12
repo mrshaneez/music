@@ -120,6 +120,42 @@
     padding:12px 16px;border-radius:12px;max-width:min(520px,92vw);font-size:14px;line-height:1.4;transition:.25s;z-index:10;box-shadow:0 10px 30px #0008}
   .toast.show{opacity:1;transform:translateX(-50%)}
   .toast.bad{border-left-color:var(--bad)}
+
+  /* ---- Fit the whole app to the screen: no page scrolling, the library scrolls inside ---- */
+  html,body{height:100%;overflow:hidden}
+  body{padding:16px;height:100dvh;align-items:stretch}
+  .app{height:100%;max-width:1200px;grid-template-rows:auto minmax(0,1fr);align-content:stretch;gap:16px}
+  .card{min-height:0;padding:18px}
+  .player{gap:14px;overflow:hidden}
+  .art{aspect-ratio:auto;flex:1 1 auto;min-height:120px;width:100%;container-type:size}
+  .art.isvideo{aspect-ratio:auto}
+  .art.isvideo.tall{aspect-ratio:auto;height:auto;width:100%}
+  .art.isvideo.tall #ttFrame,.art.isvideo.tall #ytHost{width:min(100%,calc(100cqh * 9 / 16));left:50%;transform:translateX(-50%)}
+  .disc{width:38cqmin;height:38cqmin}
+  .meta,.seek,.controls,.vol{flex:none}
+  .lib{overflow:hidden;gap:12px}
+  ul.list{flex:1 1 auto;min-height:0;max-height:none}
+  @media (max-height:700px){.keys{display:none}.meta h2{font-size:20px}.player{gap:10px}}
+  @media (max-width:820px){
+    body{padding:10px}
+    .app{grid-template-columns:1fr;grid-template-rows:auto auto minmax(0,1fr);gap:10px}
+    header .logo{font-size:22px}
+    .card{padding:14px;border-radius:18px}
+    .art{flex:none;height:min(30dvh,90vw)}
+    .art.isvideo{height:min(36dvh,56vw)}
+    .art.isvideo.tall{height:min(44dvh,120vw)}
+    .player{gap:8px}
+    .meta h2{font-size:18px} .meta p{font-size:13px}
+    .controls{gap:6px} .play{width:56px;height:56px}
+    .drop,.keys{display:none}
+    .lib{gap:8px} .lib-head h3{font-size:16px}
+    .vol{display:none}
+  }
+  @media (max-width:820px) and (max-height:760px){
+    .art{height:21dvh} .art.isvideo{height:27dvh} .art.isvideo.tall{height:34dvh}
+    .meta p{display:none} .meta h2{font-size:17px}
+    .play{width:50px;height:50px} .ic{width:40px;height:40px}
+  }
 </style>
 </head>
 <body>
